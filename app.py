@@ -112,18 +112,27 @@ if st.button("Run Momentum Scan"):
             except Exception as e:
                 continue
 
+        if not momentum_data:
+            st.warning("No stocks matched your filters. Try relaxing some criteria.")
+            st.stop()
+            
         df = pd.DataFrame(momentum_data).sort_values("Momentum (%)", ascending=False)
         
         # Adjust position sizing based on risk tolerance
         if risk_tolerance == "Low":
-            df["Allocation (%)"] = 5  # Equal weight, low leverage
+            allocation = 5  # Equal weight, low leverage
         elif risk_tolerance == "Medium":
-            df["Allocation (%)"] = 8
+            allocation = 8
         else:  # High risk
-            df["Allocation (%)"] = 12  # Concentrated bets
+            allocation = 12  # Concentrated bets
         
-        # Limit to top 10 stocks
-        df = df.head(10)
+        # Calculate number of stocks and adjust allocation
+        num_stocks = min(10, len(df))
+        allocation = min(allocation, 100/num_stocks)  # Ensure total <= 100%
+        df["Allocation (%)"] = allocation
+        
+        # Limit to top stocks
+        df = df.head(num_stocks)
 
     # ------------------------------
     # Display Results
@@ -135,8 +144,9 @@ if st.button("Run Momentum Scan"):
     st.subheader("⚖️ Suggested Portfolio")
     st.write(
         f"- **Index:** {selected_sheet}\n"
-        f"- **Risk Tolerance:** {risk_tolerance} → Max position size = {df['Allocation (%)'].iloc[0]}%\n"
-        f"- **Time Horizon:** {time_horizon} months → Momentum lookback = {momentum_lookback} days"
+        f"- **Risk Tolerance:** {risk_tolerance} → Position size = {allocation}%\n"
+        f"- **Time Horizon:** {time_horizon} months → Momentum lookback = {momentum_lookback} days\n"
+        f"- **Total Portfolio Allocation:** {num_stocks * allocation}%"
     )
     
     # Show backtest (mock)
@@ -145,3 +155,9 @@ if st.button("Run Momentum Scan"):
     col1.metric("Avg. Return (6M)", "+14.2%", "+4.1% vs NIFTY50")
     col2.metric("Max Drawdown", "-10.5%", "Better than index")
     col3.metric("Sharpe Ratio", "1.6", "High risk-adjusted return")
+
+    # Add disclaimer
+    st.warning("""
+    **Disclaimer:** This is for educational purposes only. Past performance is not indicative of future results. 
+    Always do your own research before investing.
+    """)
