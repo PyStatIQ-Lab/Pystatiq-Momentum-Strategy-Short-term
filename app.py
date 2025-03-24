@@ -67,7 +67,7 @@ min_volume = st.number_input("Min Avg Volume (Millions)", value=1)
 # Fetch & Filter Stocks
 # ------------------------------
 def calculate_momentum(ticker, lookback_days):
-    data = yf.download(ticker + ".NS", period=f"{lookback_days}d")["Adj Close"]  # .NS for NSE
+    data = yf.download(ticker + ".NS", period=f"{lookback_days}d")["Close"]  # .NS for NSE
     return (data[-1] / data[0] - 1) * 100  # Return %
 
 if st.button("Run Momentum Scan"):
