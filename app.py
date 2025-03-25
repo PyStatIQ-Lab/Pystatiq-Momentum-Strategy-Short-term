@@ -11,7 +11,7 @@ st.write("**Select your risk tolerance and time horizon for momentum stock recom
 
 # 1. Load Excel and let user select sheet
 try:
-    stock_data = pd.ExcelFile("stocklist1.xlsx")  # Replace with your file path
+    stock_data = pd.ExcelFile("stocklist.xlsx")  # Replace with your file path
     sheet_names = stock_data.sheet_names  # Get all sheet names (NIFTY50, NIFTY100, etc.)
     
     selected_sheet = st.selectbox(
