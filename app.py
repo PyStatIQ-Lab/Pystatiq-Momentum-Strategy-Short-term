@@ -12,7 +12,7 @@ st.write("**Select your index, risk tolerance, time horizon, and filters to get 
 
 # 1. Load Excel and let user select sheet
 try:
-    stock_data = pd.ExcelFile("stocklist.xlsx")  # Replace with your file path
+    stock_data = pd.ExcelFile("stocklist1.xlsx")  # Replace with your file path
     sheet_names = stock_data.sheet_names  # Get all sheet names (NIFTY50, NIFTY100, etc.)
     
     selected_sheet = st.selectbox(
@@ -23,7 +23,8 @@ try:
     
     # Read symbols from the selected sheet
     df_stocks = pd.read_excel(stock_data, sheet_name=selected_sheet)
-    tickers = df_stocks["Symbol"].tolist()  # Assuming column name is "Symbol"
+    # Clean ticker symbols - remove .NS if already present and we'll add it later
+    tickers = df_stocks["Symbol"].str.replace('.NS', '').tolist()
     
 except Exception as e:
     st.error(f"Error loading Excel file: {e}")
@@ -68,14 +69,45 @@ min_volume = st.number_input("Min Avg Volume (Millions)", value=0.5)
 # ------------------------------
 def calculate_momentum(ticker, lookback_days):
     try:
-        # Ensure proper ticker format (add .NS only if not present)
-        yf_ticker = ticker if ticker.endswith('.NS') else f"{ticker}.NS"
-        data = yf.download(yf_ticker, period=f"{lookback_days}d")["Close"]
+        yf_ticker = f"{ticker}.NS"
+        data = yf.download(yf_ticker, period=f"{lookback_days}d", progress=False)["Close"]
         if len(data) == 0:
             return np.nan
         return (data[-1] / data[0] - 1) * 100  # Return %
     except Exception as e:
         return np.nan
+
+def get_stock_info(ticker):
+    try:
+        yf_ticker = f"{ticker}.NS"
+        stock = yf.Ticker(yf_ticker)
+        
+        # Get history data
+        hist = stock.history(period="6mo", progress=False)
+        if hist.empty:
+            return None
+            
+        # Calculate technicals
+        rsi = 70 - (hist["Close"].pct_change().mean() * 100)  # Mock RSI
+        avg_volume = hist["Volume"].mean() / 1e6  # In millions
+        
+        # Get fundamentals
+        info = stock.info
+        pe = info.get("trailingPE", np.nan)
+        roe = info.get("returnOnEquity", np.nan) * 100 if info.get("returnOnEquity") else np.nan
+        de = info.get("debtToEquity", np.nan)
+        market_cap = info.get("marketCap", 0) / 1e9  # In $B
+        
+        return {
+            "rsi": rsi,
+            "avg_volume": avg_volume,
+            "pe": pe,
+            "roe": roe,
+            "de": de,
+            "market_cap": market_cap
+        }
+    except Exception as e:
+        return None
 
 if st.button("Run Momentum Scan"):
     with st.spinner(f"Scanning {selected_sheet} for top momentum stocks..."):
@@ -83,54 +115,36 @@ if st.button("Run Momentum Scan"):
         problematic_tickers = []
         
         for ticker in tickers[:50]:  # Limit to 50 for demo (remove [:50] for full scan)
-            try:
-                # Get momentum
-                mom = calculate_momentum(ticker, momentum_lookback)
-                if np.isnan(mom):
-                    problematic_tickers.append(ticker)
-                    continue
-                
-                # Get stock info
-                yf_ticker = ticker if ticker.endswith('.NS') else f"{ticker}.NS"
-                stock = yf.Ticker(yf_ticker)
-                
-                # Get RSI and Volume (simplified)
-                hist = stock.history(period="6mo")
-                if hist.empty:
-                    problematic_tickers.append(ticker)
-                    continue
-                    
-                rsi = 70 - (hist["Close"].pct_change().mean() * 100)  # Mock RSI
-                avg_volume = hist["Volume"].mean() / 1e6  # In millions
-                
-                # Get fundamentals
-                info = stock.info
-                pe = info.get("trailingPE", np.nan)
-                roe = info.get("returnOnEquity", np.nan) * 100 if info.get("returnOnEquity") else np.nan
-                de = info.get("debtToEquity", np.nan)
-                market_cap = info.get("marketCap", 0) / 1e9  # In $B
-                
-                # Apply filters (with relaxed criteria)
-                if (
-                    (pe >= min_pe if not np.isnan(pe) else False)
-                    and (roe >= min_roe if not np.isnan(roe) else False)
-                    and (de <= max_debt_equity if not np.isnan(de) else False)
-                    and (market_cap >= min_market_cap)
-                    and (rsi >= min_rsi if not np.isnan(rsi) else False)
-                    and (avg_volume >= min_volume if not np.isnan(avg_volume) else False)
-                ):
-                    momentum_data.append({
-                        "Ticker": ticker,
-                        "Momentum (%)": mom,
-                        "RSI": rsi,
-                        "Volume (M)": avg_volume,
-                        "P/E": pe,
-                        "ROE (%)": roe,
-                        "Debt/Equity": de,
-                    })
-            except Exception as e:
+            # Get momentum
+            mom = calculate_momentum(ticker, momentum_lookback)
+            if np.isnan(mom):
                 problematic_tickers.append(ticker)
                 continue
+            
+            # Get stock info
+            stock_info = get_stock_info(ticker)
+            if stock_info is None:
+                problematic_tickers.append(ticker)
+                continue
+                
+            # Apply filters
+            if (
+                (stock_info["pe"] >= min_pe if not np.isnan(stock_info["pe"]) else False)
+                and (stock_info["roe"] >= min_roe if not np.isnan(stock_info["roe"]) else False)
+                and (stock_info["de"] <= max_debt_equity if not np.isnan(stock_info["de"]) else False)
+                and (stock_info["market_cap"] >= min_market_cap)
+                and (stock_info["rsi"] >= min_rsi if not np.isnan(stock_info["rsi"]) else False)
+                and (stock_info["avg_volume"] >= min_volume if not np.isnan(stock_info["avg_volume"]) else False)
+            ):
+                momentum_data.append({
+                    "Ticker": ticker,
+                    "Momentum (%)": mom,
+                    "RSI": stock_info["rsi"],
+                    "Volume (M)": stock_info["avg_volume"],
+                    "P/E": stock_info["pe"],
+                    "ROE (%)": stock_info["roe"],
+                    "Debt/Equity": stock_info["de"],
+                })
 
         if problematic_tickers:
             st.warning(f"Could not fetch data for these tickers: {', '.join(problematic_tickers)}")
