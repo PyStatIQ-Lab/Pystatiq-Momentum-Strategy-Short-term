@@ -12,7 +12,7 @@ st.write("**Select your index, risk tolerance, time horizon, and filters to get 
 
 # 1. Load Excel and let user select sheet
 try:
-    stock_data = pd.ExcelFile("stocklist1.xlsx")  # Replace with your file path
+    stock_data = pd.ExcelFile("stocklist.xlsx")  # Replace with your file path
     sheet_names = stock_data.sheet_names  # Get all sheet names (NIFTY50, NIFTY100, etc.)
     
     selected_sheet = st.selectbox(
