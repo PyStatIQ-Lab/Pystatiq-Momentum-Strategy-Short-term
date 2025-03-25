@@ -92,23 +92,25 @@ if st.button("Run Momentum Scan"):
                 market_cap = info.get("marketCap", 0) / 1e9  # In $B
                 
                 # Apply filters
-                if (
-                    (pe >= min_pe if not np.isnan(pe) else False)
-                    and (roe >= min_roe if not np.isnan(roe) else False)
-                    and (de <= max_debt_equity if not np.isnan(de) else False)
-                    and (market_cap >= min_market_cap)
-                    and (rsi >= min_rsi)
-                    and (avg_volume >= min_volume)
-                ):
-                    momentum_data.append({
-                        "Ticker": ticker,
-                        "Momentum (%)": mom,
-                        "RSI": rsi,
-                        "Volume (M)": avg_volume,
-                        "P/E": pe,
-                        "ROE (%)": roe,
-                        "Debt/Equity": de,
-                    })
+                # Apply relaxed filters
+if (
+    (np.isnan(pe) or pe >= min_pe)  # Allow NaN P/E
+    and (np.isnan(roe) or roe >= min_roe)  # Allow NaN ROE
+    and (np.isnan(de) or de <= max_debt_equity)  # Allow NaN Debt/Equity
+    and (market_cap >= min_market_cap)
+    and (rsi >= min_rsi)
+    and (avg_volume >= min_volume)
+):
+    momentum_data.append({
+        "Ticker": ticker,
+        "Momentum (%)": mom,
+        "RSI": rsi,
+        "Volume (M)": avg_volume,
+        "P/E": pe if not np.isnan(pe) else "N/A",
+        "ROE (%)": roe if not np.isnan(roe) else "N/A",
+        "Debt/Equity": de if not np.isnan(de) else "N/A",
+    })
+
             except Exception as e:
                 continue
 
