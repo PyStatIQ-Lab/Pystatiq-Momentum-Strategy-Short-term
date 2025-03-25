@@ -2,17 +2,16 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
 
 # ------------------------------
 # Streamlit UI - User Inputs
 # ------------------------------
-st.title("🚀 NIFTY Momentum Stock Picker (1-6 Months)")
-st.write("**Select your index, risk tolerance, time horizon, and filters to get momentum stock recommendations.**")
+st.title("🚀 NIFTY Momentum Stock Picker")
+st.write("**Select your risk tolerance and time horizon for momentum stock recommendations.**")
 
 # 1. Load Excel and let user select sheet
 try:
-    stock_data = pd.ExcelFile("stocklist.xlsx")  # Replace with your file path
+    stock_data = pd.ExcelFile("stocklist1.xlsx")  # Replace with your file path
     sheet_names = stock_data.sheet_names  # Get all sheet names (NIFTY50, NIFTY100, etc.)
     
     selected_sheet = st.selectbox(
@@ -23,7 +22,7 @@ try:
     
     # Read symbols from the selected sheet
     df_stocks = pd.read_excel(stock_data, sheet_name=selected_sheet)
-    # Clean ticker symbols - remove .NS if already present and we'll add it later
+    # Clean ticker symbols - remove .NS if already present
     tickers = df_stocks["Symbol"].str.replace('.NS', '').tolist()
     
 except Exception as e:
@@ -34,7 +33,7 @@ except Exception as e:
 risk_tolerance = st.radio(
     "**Risk Tolerance**",
     options=["Low", "Medium", "High"],
-    help="High risk = higher leverage & volatile stocks."
+    help="High risk = higher position sizing"
 )
 
 # 3. Time Horizon → Adjusts lookback period
@@ -44,113 +43,43 @@ time_horizon = st.slider(
     help="Short-term momentum works best for 1-6 months."
 )
 
-# 4. Fundamental Filters (Relaxed criteria)
-st.subheader("🔍 Fundamental Filters")
-col1, col2 = st.columns(2)
-with col1:
-    min_pe = st.number_input("Min P/E Ratio", value=5)
-    min_roe = st.number_input("Min ROE (%)", value=10)
-with col2:
-    max_debt_equity = st.number_input("Max Debt/Equity", value=2.0)
-    min_market_cap = st.number_input("Min Market Cap ($B)", value=0.5)
-
-# 5. Technical Filters (Relaxed criteria)
-st.subheader("📈 Technical Filters")
-momentum_lookback = st.selectbox(
-    "Momentum Lookback (Days)", 
-    options=[30, 60, 90, 180],
-    index=2,  # Default = 90 days
-)
-min_rsi = st.slider("Min RSI (Avoid Overbought)", 20, 70, 40)
-min_volume = st.number_input("Min Avg Volume (Millions)", value=0.5)
+# Convert months to days for lookback period
+lookback_days = time_horizon * 30  # Approximate 30 days per month
 
 # ------------------------------
-# Fetch & Filter Stocks
+# Fetch & Calculate Momentum
 # ------------------------------
-def calculate_momentum(ticker, lookback_days):
+def calculate_momentum(ticker, days):
     try:
         yf_ticker = f"{ticker}.NS"
-        data = yf.download(yf_ticker, period=f"{lookback_days}d", progress=False)["Close"]
+        data = yf.download(yf_ticker, period=f"{days}d", progress=False)["Close"]
         if len(data) == 0:
             return np.nan
         return (data[-1] / data[0] - 1) * 100  # Return %
-    except Exception as e:
+    except:
         return np.nan
 
-def get_stock_info(ticker):
-    try:
-        yf_ticker = f"{ticker}.NS"
-        stock = yf.Ticker(yf_ticker)
-        
-        # Get history data
-        hist = stock.history(period="6mo", progress=False)
-        if hist.empty:
-            return None
-            
-        # Calculate technicals
-        rsi = 70 - (hist["Close"].pct_change().mean() * 100)  # Mock RSI
-        avg_volume = hist["Volume"].mean() / 1e6  # In millions
-        
-        # Get fundamentals
-        info = stock.info
-        pe = info.get("trailingPE", np.nan)
-        roe = info.get("returnOnEquity", np.nan) * 100 if info.get("returnOnEquity") else np.nan
-        de = info.get("debtToEquity", np.nan)
-        market_cap = info.get("marketCap", 0) / 1e9  # In $B
-        
-        return {
-            "rsi": rsi,
-            "avg_volume": avg_volume,
-            "pe": pe,
-            "roe": roe,
-            "de": de,
-            "market_cap": market_cap
-        }
-    except Exception as e:
-        return None
-
-if st.button("Run Momentum Scan"):
+if st.button("Get Momentum Stocks"):
     with st.spinner(f"Scanning {selected_sheet} for top momentum stocks..."):
         momentum_data = []
         problematic_tickers = []
         
         for ticker in tickers[:50]:  # Limit to 50 for demo (remove [:50] for full scan)
-            # Get momentum
-            mom = calculate_momentum(ticker, momentum_lookback)
-            if np.isnan(mom):
-                problematic_tickers.append(ticker)
-                continue
-            
-            # Get stock info
-            stock_info = get_stock_info(ticker)
-            if stock_info is None:
-                problematic_tickers.append(ticker)
-                continue
-                
-            # Apply filters
-            if (
-                (stock_info["pe"] >= min_pe if not np.isnan(stock_info["pe"]) else False)
-                and (stock_info["roe"] >= min_roe if not np.isnan(stock_info["roe"]) else False)
-                and (stock_info["de"] <= max_debt_equity if not np.isnan(stock_info["de"]) else False)
-                and (stock_info["market_cap"] >= min_market_cap)
-                and (stock_info["rsi"] >= min_rsi if not np.isnan(stock_info["rsi"]) else False)
-                and (stock_info["avg_volume"] >= min_volume if not np.isnan(stock_info["avg_volume"]) else False)
-            ):
+            mom = calculate_momentum(ticker, lookback_days)
+            if not np.isnan(mom):
                 momentum_data.append({
                     "Ticker": ticker,
                     "Momentum (%)": mom,
-                    "RSI": stock_info["rsi"],
-                    "Volume (M)": stock_info["avg_volume"],
-                    "P/E": stock_info["pe"],
-                    "ROE (%)": stock_info["roe"],
-                    "Debt/Equity": stock_info["de"],
+                    "Current Price": yf.Ticker(f"{ticker}.NS").history(period="1d")["Close"].iloc[-1]
                 })
+            else:
+                problematic_tickers.append(ticker)
 
         if problematic_tickers:
             st.warning(f"Could not fetch data for these tickers: {', '.join(problematic_tickers)}")
 
         if not momentum_data:
-            st.warning("No stocks matched your filters. Try relaxing some criteria.")
+            st.error("No stocks could be analyzed. Please try again later.")
             st.stop()
             
         df = pd.DataFrame(momentum_data).sort_values("Momentum (%)", ascending=False)
@@ -158,13 +87,14 @@ if st.button("Run Momentum Scan"):
         # Adjust position sizing based on risk tolerance
         if risk_tolerance == "Low":
             allocation = 5  # Equal weight, low leverage
+            num_stocks = min(20, len(df))  # More diversified
         elif risk_tolerance == "Medium":
             allocation = 8
+            num_stocks = min(12, len(df))
         else:  # High risk
             allocation = 12  # Concentrated bets
+            num_stocks = min(8, len(df))
         
-        # Calculate number of stocks and adjust allocation
-        num_stocks = min(10, len(df))
         allocation = min(allocation, 100/num_stocks)  # Ensure total <= 100%
         df["Allocation (%)"] = allocation
         
@@ -174,25 +104,32 @@ if st.button("Run Momentum Scan"):
     # ------------------------------
     # Display Results
     # ------------------------------
-    st.success(f"✅ Top {len(df)} Momentum Stocks from {selected_sheet} for {time_horizon} Months")
-    st.dataframe(df.style.background_gradient(subset=["Momentum (%)"]))
+    st.success(f"✅ Top {len(df)} Momentum Stocks from {selected_sheet}")
     
-    # Explain allocation
-    st.subheader("⚖️ Suggested Portfolio")
+    # Format the dataframe
+    formatted_df = df.copy()
+    formatted_df["Momentum (%)"] = formatted_df["Momentum (%)"].round(2)
+    formatted_df["Current Price"] = formatted_df["Current Price"].round(2)
+    formatted_df["Allocation (%)"] = formatted_df["Allocation (%)"].round(1)
+    
+    st.dataframe(
+        formatted_df.style.background_gradient(
+            subset=["Momentum (%)"],
+            cmap='RdYlGn'  # Red-Yellow-Green color scale
+        )
+    )
+    
+    # Explain strategy
+    st.subheader("⚖️ Suggested Portfolio Strategy")
     st.write(
-        f"- **Index:** {selected_sheet}\n"
-        f"- **Risk Tolerance:** {risk_tolerance} → Position size = {allocation}%\n"
-        f"- **Time Horizon:** {time_horizon} months → Momentum lookback = {momentum_lookback} days\n"
+        f"- **Risk Tolerance:** {risk_tolerance}\n"
+        f"  - Position size: {allocation}% per stock\n"
+        f"  - Number of stocks: {num_stocks}\n"
+        f"- **Time Horizon:** {time_horizon} months\n"
+        f"  - Lookback period: {lookback_days} days\n"
         f"- **Total Portfolio Allocation:** {num_stocks * allocation}%"
     )
     
-    # Show backtest (mock)
-    st.subheader("📊 Expected Performance (Backtest)")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Avg. Return (6M)", "+14.2%", "+4.1% vs NIFTY50")
-    col2.metric("Max Drawdown", "-10.5%", "Better than index")
-    col3.metric("Sharpe Ratio", "1.6", "High risk-adjusted return")
-
     # Add disclaimer
     st.warning("""
     **Disclaimer:** This is for educational purposes only. Past performance is not indicative of future results. 
